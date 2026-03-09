@@ -86,25 +86,24 @@ def extract_vehicle_fields(vehicle: dict[str, Any]) -> dict[str, Any]:
     """
     Map a single raw vehicle dict to the canonical fields we care about.
 
-    Update the .get() keys here if the real schema differs from what
-    we assume.  Everything else in the codebase uses the canonical names.
+    GT GetMapVehiclePoints uses PascalCase: Latitude, Longitude, VehicleID, GroundSpeed.
+    No load/capacity field in the API; we show — when missing.
     """
     loc = vehicle.get("location")
-
     if isinstance(loc, dict) and loc:
-        lat = loc.get("lat", loc.get("latitude"))
-        lon = loc.get("lng", loc.get("lon", loc.get("longitude")))
+        lat = loc.get("lat", loc.get("latitude", loc.get("Latitude")))
+        lon = loc.get("lng", loc.get("lon", loc.get("longitude", loc.get("Longitude"))))
     else:
-        lat = vehicle.get("latitude", vehicle.get("lat"))
-        lon = vehicle.get("longitude", vehicle.get("lon", vehicle.get("lng")))
+        # GT API returns flat Latitude, Longitude (PascalCase)
+        lat = vehicle.get("Latitude", vehicle.get("latitude", vehicle.get("lat")))
+        lon = vehicle.get("Longitude", vehicle.get("longitude", vehicle.get("lon", vehicle.get("lng"))))
 
-    # GT GetMapVehiclePoints: VehicleID, Latitude, Longitude, GroundSpeed (no load)
     return {
-        "vehicle_id": vehicle.get("vehicle_id", vehicle.get("VehicleID", vehicle.get("id"))),
+        "vehicle_id": vehicle.get("Name", vehicle.get("VehicleID", vehicle.get("vehicle_id", vehicle.get("id")))),
         "lat": lat,
         "lon": lon,
-        "load": vehicle.get("load", vehicle.get("Load", vehicle.get("passenger_load", vehicle.get("capacity")))),
-        "speed": vehicle.get("speed", vehicle.get("GroundSpeed", 0)),
+        "load": vehicle.get("Load", vehicle.get("load", vehicle.get("passenger_load", vehicle.get("capacity")))),
+        "speed": vehicle.get("GroundSpeed", vehicle.get("speed", 0)),
     }
 
 
