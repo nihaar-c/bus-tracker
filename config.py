@@ -14,6 +14,10 @@ VEHICLE_STATUS_URL_OVERRIDE: str = (
     "?apiKey=8882812681&isPublicMap=true"
 )
 
+VEHICLE_CAPACITY_URL: str = (
+    "https://bus.gatech.edu/Services/JSONPRelay.svc/GetVehicleCapacities"
+)
+
 # ── Polling ───────────────────────────────────────────────────────────
 
 POLL_INTERVAL_SEC: int = 35
@@ -22,4 +26,14 @@ REQUEST_TIMEOUT_SEC: int = 10
 
 # ── Output ────────────────────────────────────────────────────────────
 
-JSONL_LOG_FILE: str = "bus_logs.jsonl"
+JSONL_LOG_FILE: str = "bus_logs_v2.jsonl"
+
+DATABASE_PATH: str = "bus_data_v2.db"
+
+# ── Route → bus mapping ───────────────────────────────────────────────
+
+ROUTES: dict[str, list[str]] = {
+    "Red":  ["2201", "2206", "2202"],
+    "Blue": ["2214", "2203", "2208"],
+    "Gold": ["2302", "2301", "2307", "2304"],
+}

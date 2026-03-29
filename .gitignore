@@ -206,5 +206,10 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Bus tracker logs
+# Bus tracker logs and DB
 bus_logs.jsonl
+bus_logs_v2.jsonl
+bus_data.db
+bus_data_v2.db
+report.html
+analysis.html

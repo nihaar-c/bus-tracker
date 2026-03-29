@@ -19,6 +19,7 @@ import requests
 from tabulate import tabulate
 
 import config
+import db
 
 # ── URL helpers ───────────────────────────────────────────────────────
 
@@ -100,11 +101,39 @@ def extract_vehicle_fields(vehicle: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "vehicle_id": vehicle.get("Name", vehicle.get("VehicleID", vehicle.get("vehicle_id", vehicle.get("id")))),
+        "raw_vehicle_id": vehicle.get("VehicleID", vehicle.get("id")),
         "lat": lat,
         "lon": lon,
-        "load": vehicle.get("Load", vehicle.get("load", vehicle.get("passenger_load", vehicle.get("capacity")))),
         "speed": vehicle.get("GroundSpeed", vehicle.get("speed", 0)),
+        "heading": vehicle.get("Heading", vehicle.get("heading")),
     }
+
+
+# ── Capacity ──────────────────────────────────────────────────────────
+
+def fetch_capacities() -> dict[int, dict[str, Any]]:
+    """Fetch GetVehicleCapacities and return {VehicleID: {capacity, occupation, pct}}."""
+    url = getattr(config, "VEHICLE_CAPACITY_URL", "")
+    if not url:
+        return {}
+    try:
+        resp = requests.get(url, timeout=config.REQUEST_TIMEOUT_SEC)
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        if not isinstance(data, list):
+            return {}
+        return {
+            item["VehicleID"]: {
+                "capacity": item.get("Capacity"),
+                "occupation": item.get("CurrentOccupation"),
+                "occupation_pct": item.get("Percentage"),
+            }
+            for item in data
+            if "VehicleID" in item
+        }
+    except Exception:
+        return {}
 
 
 # ── State machine (time-at-stop) ─────────────────────────────────────
@@ -140,7 +169,7 @@ def print_table(rows: list[dict[str, Any]], poll_time: str) -> None:
         print(f"\n[{poll_time}] No vehicles reported.\n")
         return
 
-    headers = ["vehicle_id", "lat", "lon", "load", "speed", "time_at_stop"]
+    headers = ["vehicle_id", "lat", "lon", "occupancy", "speed", "time_at_stop"]
     table_data = [[r.get(h, "—") for h in headers] for r in rows]
     print(f"\n[{poll_time}] {len(rows)} vehicle(s)")
     print(tabulate(table_data, headers=headers, tablefmt="simple", floatfmt=".6f"))
@@ -160,8 +189,10 @@ def append_jsonl(raw: dict[str, Any], path: str) -> None:
 # ── Main loop ─────────────────────────────────────────────────────────
 
 def poll_once(url: str) -> None:
-    """Single poll iteration: fetch → extract → update state → output."""
-    poll_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    """Single poll iteration: fetch positions + capacity → merge → output + DB."""
+    now = datetime.now(timezone.utc)
+    poll_time = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+    poll_utc_iso = now.isoformat()
 
     raw = fetch_vehicle_statuses(url)
     if raw is None:
@@ -170,14 +201,30 @@ def poll_once(url: str) -> None:
 
     append_jsonl(raw, config.JSONL_LOG_FILE)
 
+    # Build VehicleID → capacity map and merge into each vehicle row
+    cap_by_vid = fetch_capacities()
+
     vehicles_raw = extract_vehicles(raw)
     rows: list[dict[str, Any]] = []
     for v in vehicles_raw:
         fields = extract_vehicle_fields(v)
         tas = update_stop_state(fields["vehicle_id"], fields["speed"])
         fields["time_at_stop"] = f"{tas}s"
+        fields["time_at_stop_sec"] = tas
+
+        # Merge capacity using the numeric VehicleID
+        raw_vid = fields.pop("raw_vehicle_id", None)
+        cap = cap_by_vid.get(raw_vid, {})
+        fields["capacity"] = cap.get("capacity")
+        fields["occupation"] = cap.get("occupation")
+        fields["occupation_pct"] = cap.get("occupation_pct")
+        occ = fields["occupation"]
+        cap_val = fields["capacity"]
+        fields["occupancy"] = f"{occ}/{cap_val}" if occ is not None and cap_val else "—"
+
         rows.append(fields)
 
+    db.insert_poll_rows(poll_utc_iso, rows)
     print_table(rows, poll_time)
 
 
@@ -187,6 +234,7 @@ def main() -> None:
     if not discover_endpoint(url):
         sys.exit(1)
 
+    db.init_db()
     print(f"[poller] Polling every {config.POLL_INTERVAL_SEC}s  —  Ctrl-C to stop.\n")
 
     try:
